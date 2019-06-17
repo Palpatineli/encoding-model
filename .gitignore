@@ -1,0 +1,7 @@
+*egg-link
+*egg-info
+*.mat
+*.npy
+*.npz
+*.png
+*.svg

@@ -1,0 +1,17 @@
+digraph {
+    build_predictor -> encoding
+    run -> encoding
+    scale -> run
+    optimal_poly_order -> run
+    validated_glm_model -> optimal_poly_order
+    split_folds -> validated_glm_model
+    raise_poly -> run
+    get_f_mat -> run
+    aov -> get_f_mat
+    get_r2_mat_refit -> run
+    validated_glm_model -> get_r2_mat_refit
+    get_r2_mat_norefit -> run
+    validated_glm_with_drop -> get_r2_mat_norefit
+    split_folds -> validated_glm_with_drop
+    validated_glm_model -> get_r2_mat_norefit
+}
