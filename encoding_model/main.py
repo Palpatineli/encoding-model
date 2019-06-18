@@ -52,8 +52,7 @@ def validated_glm_model(X: np.ndarray, y: np.ndarray, folds: int = 5) -> np.ndar
     """
     y_hat = np.zeros(y.shape[0] // folds * folds, dtype=y.dtype)
     for idx_tr, idx_te in split_folds(y.shape[0], folds):
-        model = sm.GLM(y[idx_tr], sm.add_constant(X[idx_tr, :]), family=GLM_FAMILY)
-        model.fit()
+        model = sm.GLM(y[idx_tr], sm.add_constant(X[idx_tr, :]), family=GLM_FAMILY).fit()
         y_hat[idx_te] = model.predict(sm.add_constant(X[idx_te, :]))
     return y_hat
 
@@ -83,15 +82,20 @@ def get_f_mat(X: np.ndarray, y: np.ndarray, grouping: np.ndarray) -> List[List[T
     """
     res_mat = list()
     for neuron in y:
-        y_flat = neuron.ravel()
-        SS_full, df_full = aov(X, y_flat)
+        SS_full, df_full = aov(X, neuron)
         res_neuron = list()
-        for group_id in np.sorted(np.unique(grouping)):
-            SS_nested, df_nested = aov(X[:, grouping != group_id], y_flat)
+        for group_id in np.sort(np.unique(grouping)):
+            SS_nested, df_nested = aov(X[:, grouping != group_id], neuron)
+            print("SS: ", SS_nested - SS_full)
             res_neuron.append(((SS_nested - SS_full) / SS_full / ((df_nested - df_full) / df_full),
                               df_nested - df_full, df_full))
         res_mat.append(res_neuron)
     return res_mat
+
+def _corr(x: np.ndarray, y: np.ndarray) -> float:
+    ex = x - x.mean()
+    ey = y - y.mean()
+    return (ex * ey).sum() / np.sqrt((ex * ex).sum() * (ey * ey).sum())
 
 def get_r2_mat_refit(X: np.ndarray, y: np.ndarray, grouping: np.ndarray,
                      folds: int = 5) -> Tuple[List[List[float]], List[float]]:
@@ -104,9 +108,9 @@ def get_r2_mat_refit(X: np.ndarray, y: np.ndarray, grouping: np.ndarray,
     Returns:
         2D array of float for r^2, n * k with n neuron and k feature groups, feature group id follow that in grouping
     """
-    r2_dropped = [[np.corr(validated_glm_model(X[:, grouping != group_id], neuron, folds), neuron)
-                   for group_id in np.unqiue(grouping)] for neuron in y]
-    r2_full = [np.corr(validated_glm_model(X, neuron), neuron, folds) for neuron in y]
+    r2_dropped = [[_corr(validated_glm_model(X[:, grouping != group_id], neuron, folds), neuron)
+                   for group_id in np.unique(grouping)] for neuron in y]
+    r2_full = [_corr(validated_glm_model(X, neuron, folds), neuron) for neuron in y]
     return r2_dropped, r2_full
 
 def validate_glm_with_drop(X: np.ndarray, y: np.ndarray, grouping: np.ndarray,
@@ -116,15 +120,17 @@ def validate_glm_with_drop(X: np.ndarray, y: np.ndarray, grouping: np.ndarray,
         X: t * n predictor with t observations and n flattened features
         y: values to be predicted, n * t with n entities and t observations
     """
-    preds = [X[:, group_id == grouping].copy() for group_id in np.sorted(np.unique(grouping))]
     y_hat = list()
+    unique_groups = np.sort(np.unique(grouping))
     for neuron in y:
-        y_hat_neuron = [np.zeros(neuron.shape[0] // folds * folds, dtype=y.dtype) for _ in range(len(preds))]
+        y_hat_neuron = [np.zeros(neuron.shape[0] // folds * folds, dtype=y.dtype) for _ in range(len(unique_groups))]
         for idx_tr, idx_te in split_folds(neuron.shape[0], folds):
-            y_tr = y[idx_tr]
-            for idx, pred in enumerate(preds):
-                y_hat_neuron[idx][idx_te] = sm.GLM(y_tr, sm.add_constant(pred[idx_tr, :]), family=GLM_FAMILY).fit()\
-                    .predict(sm.add_constant(pred[idx_te, :]))
+            y_tr = neuron[idx_tr]
+            model = sm.GLM(y_tr, sm.add_constant(X[idx_tr, :]), family=GLM_FAMILY).fit()
+            for idx in unique_groups:
+                pred = X[idx_te, :].copy()
+                pred[:, grouping == idx] = 0
+                y_hat_neuron[idx][idx_te] = model.predict(sm.add_constant(pred))
         y_hat.append(y_hat_neuron)
     return y_hat
 
@@ -139,8 +145,9 @@ def get_r2_mat_norefit(X: np.ndarray, y: np.ndarray, grouping: np.ndarray,
         2D array of float for r^2, n * k with n neuron and k feature groups, feature group id follow that in grouping
     """
     y_hat_dropped = validate_glm_with_drop(X, y, grouping, folds=folds)
-    r2_dropped = [[np.corr(y_hat_n_f, neuron) for y_hat_n_f in y_hat_n] for y_hat_n, neuron in zip(y_hat_dropped, y)]
-    r2_full = [np.corr(validated_glm_model(X, neuron, folds=folds), neuron) for neuron in y]
+    r2_dropped = [[_corr(y_hat_n_f, neuron) for y_hat_n_f in y_hat_n]
+                  for y_hat_n, neuron in zip(y_hat_dropped, y)]
+    r2_full = [_corr(validated_glm_model(X, neuron, folds=folds), neuron) for neuron in y]
     return r2_dropped, r2_full
 
 def optimal_poly_order(X: np.ndarray, X_temporal: np.ndarray, y: np.ndarray, max_poly: int = 3) -> np.ndarray:
@@ -179,7 +186,8 @@ def run(X: np.ndarray, X_temporal: np.ndarray, y: np.ndarray, grouping: Tuple[np
     y = scale(y.reshape(y.shape[0], -1))
     poly_order = optimal_poly_order(X, X_temporal, y, max_poly=3)
     X_full = np.hsatck([X, raise_poly(X_temporal, poly_order)])
-    grouping_full = np.hstack([grouping[0], np.repeat(grouping[1], poly_order)])
+    grouping_temporal = (np.arange(X_temporal.shape[1]) + grouping[0].max() + 1 if grouping[1] is None else grouping[1])
+    grouping_full = np.hstack([grouping[0], np.repeat(grouping_temporal, poly_order)])
     f_mat = get_f_mat(X_full, y, grouping_full)
     if refit:
         r2 = get_r2_mat_refit(X_full, y, grouping_full)
