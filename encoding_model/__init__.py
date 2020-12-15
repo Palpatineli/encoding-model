@@ -1,3 +1,4 @@
-from .main import build_predictor, get_f_mat, get_r2_mat_norefit, get_r2_mat_refit, run as run_encoding
+from .main import Predictors, Grouping, build_predictor, run_encoding
+from .b_spline import bspline_set
 
-__all__ = ["build_predictor", "get_f_mat", "get_r2_mat_refit", "get_r2_mat_norefit", "run_encoding"]
+__all__ = ["Predictors", "Grouping", "build_predictor", "run_encoding", "bspline_set"]

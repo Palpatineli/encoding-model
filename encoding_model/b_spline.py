@@ -29,8 +29,8 @@ def bspline_set(x: np.ndarray, k: int = 3) -> np.ndarray:
     Returns:
         2D array with each row a basis
     """
-    t = np.linspace(x[0], x[-1], k + 2)
-    t_expanded = np.hstack([[t[0]] * k, t, [t[-1]] * k])
+    t = np.linspace(x[0], x[-1] + 1E-14, k + 2)
+    t_expanded = np.hstack([[t[0]] * (k), t, [t[-1]] * (k)])
     result = list()
     for i in range(2 * k + 1):
         result.append([b(xi, k, i, t_expanded) for xi in x])
